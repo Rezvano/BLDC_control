@@ -15,7 +15,7 @@
 #define TICKS_TO_POWEROFF (500)
 
 #define LOW_VOLTAGE (25)
-#define EXP_FILTER_RANGE (64)
+#define EXP_FILTER_RANGE (128)
 #define POWER_BEFORE_DELIMER (3)
 
 #define HALL_CHANGES_PER_CIRCLE (42)
@@ -107,6 +107,7 @@ struct
     int break_power;
 
     int set_power;
+    int set_current;
 
     int power_full;
     int power_mult;
@@ -128,20 +129,19 @@ struct
     int in_data_len;
 } motor;
 
-uint16_t adc_data[2];
+uint16_t adc_data[80];
 
 void calculate_power()
 {
     motor.power_mult += (motor.set_power * EXP_FILTER_RANGE - motor.power_mult) / EXP_FILTER_RANGE;
     motor.power_full = motor.power_mult / EXP_FILTER_RANGE;
 
-    int curr_d = motor.current - (MAX_CURRENT / (motor.mode + 1));
-    if (curr_d > 0)
-    {
-        motor.power_full -= curr_d;
-        if (motor.power_full < 0)
-            motor.power_full = 0;
-    }
+    motor.set_current = motor.set_power * MAX_CURRENT / (motor.mode + 1) / MAX_PWM;
+
+    int pwm_tmp = (motor.set_current - motor.current) * 1000;
+
+    if (pwm_tmp > 0 && pwm_tmp < motor.power_full)
+        motor.power_full = pwm_tmp;
 }
 
 void system_power_off()
@@ -160,6 +160,13 @@ void system_power_off()
 
     while (1) // wait for power off
         ;
+}
+
+void set_power(int power)
+{
+    motor.set_power = power;
+    motor.power_mult = power * EXP_FILTER_RANGE;
+    motor.power_full = power;
 }
 
 void btn_task()
@@ -318,8 +325,7 @@ void main_systick()
         motor.release_timeout--;
     else
     {
-        motor.set_power = 0;
-        motor.power_full = 0;
+        set_power(0);
         on_off_chs(0);
     }
 
@@ -367,8 +373,7 @@ void readed(uint8_t byte)
 
             if (motor.in_data.brake > IN_MIN)
             {
-                motor.set_power = 0;
-                motor.power_full = 0;
+                set_power(0);
 
                 motor.break_power = MAX_PWM * (motor.in_data.brake - IN_MIN) / (IN_MAX - IN_MIN);
                 if (motor.break_power > MAX_PWM)
@@ -385,6 +390,9 @@ void readed(uint8_t byte)
 
                     if (motor.set_power > MAX_PWM)
                         motor.set_power = MAX_PWM;
+
+                    if (motor.set_power < motor.power_full)
+                        set_power(motor.set_power);
                 }
                 else
                 {
@@ -451,13 +459,18 @@ void my_main()
         else
             motor.out_data.err &= ~(1);
 
-        if (adc_data[1] < 1010)
-            motor.current = 0;
-        else
+        int curr = 0;
+        for (int i = 1; i < sizeof(adc_data) / sizeof(adc_data[0]); i += 2)
         {
-            motor.current = (adc_data[1] - 1010) * 40;
-        }
 
+            if (adc_data[i] > 1010)
+            {
+                int calc_current = (adc_data[i] - 1010) * 29;
+                if (calc_current > curr)
+                    motor.current = calc_current;
+            }
+        }
+        motor.current += (curr - motor.current) / 100;
         tx_task();
     }
 }

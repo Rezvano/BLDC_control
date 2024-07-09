@@ -119,7 +119,7 @@ int main(void)
                             LL_DMA_MDATAALIGN_HALFWORD |
                             LL_DMA_PRIORITY_HIGH);
 
-  extern uint16_t adc_data[2];
+  extern uint16_t adc_data[80];
   LL_DMA_ConfigAddresses(DMA1,
                          LL_DMA_CHANNEL_1,
                          LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA),
