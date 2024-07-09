@@ -329,11 +329,11 @@ ork --depend=bldc_control\startup_stm32f030x6.d -obldc_control\startup_stm32f03
 ARM Macro Assembler    Page 6 
 
 
-0x6.o -I.\RTE\_BLDC_control -IC:\Keil_v5\ARM\Packs\ARM\CMSIS\5.9.0\CMSIS\Core\I
-nclude -IC:\Keil_v5\ARM\Packs\Keil\STM32F0xx_DFP\2.1.1\Drivers\CMSIS\Device\ST\
-STM32F0xx\Include --predefine="__MICROLIB SETA 1" --predefine="__UVISION_VERSIO
-N SETA 538" --predefine="_RTE_ SETA 1" --predefine="STM32F030x6 SETA 1" --prede
-fine="_RTE_ SETA 1" --list=startup_stm32f030x6.lst startup_stm32f030x6.s
+0x6.o -I.\RTE\_BLDC_control -ID:\Keil_v5\ARM\PACK\ARM\CMSIS\5.9.0\CMSIS\Core\In
+clude -ID:\Keil_v5\ARM\PACK\Keil\STM32F0xx_DFP\2.1.1\Drivers\CMSIS\Device\ST\ST
+M32F0xx\Include --predefine="__MICROLIB SETA 1" --predefine="__UVISION_VERSION 
+SETA 538" --predefine="_RTE_ SETA 1" --predefine="STM32F030x6 SETA 1" --predefi
+ne="_RTE_ SETA 1" --list=startup_stm32f030x6.lst startup_stm32f030x6.s
 
 
 

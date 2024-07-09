@@ -1,12 +1,21 @@
 #include "main.h"
 
+#define IN_START (0x55)
+#define IN_STOP (0xAA)
+
+#define OUT_START (0x55)
+#define OUT_STOP (0xAA)
+
+#define IN_MIN (950)
+#define IN_MAX (4095)
+
 #define MAX_PWM_HIGH (MAX_PWM * 1)
 
 #define TICKS_TO_RELEASE (100)
 #define TICKS_TO_POWEROFF (500)
 
 #define LOW_VOLTAGE (25)
-#define EXP_FILTER_RANGE (128)
+#define EXP_FILTER_RANGE (64)
 #define POWER_BEFORE_DELIMER (3)
 
 #define HALL_CHANGES_PER_CIRCLE (42)
@@ -21,6 +30,8 @@
 #define LED_ON (STOP_LED_GPIO_Port->ODR |= STOP_LED_Pin)
 #define LED_OFF (STOP_LED_GPIO_Port->ODR &= ~STOP_LED_Pin)
 #define LED_TOGGLE (STOP_LED_GPIO_Port->ODR ^= STOP_LED_Pin)
+
+#define MAX_CURRENT (30000)
 
 #define set_chs(val_ch1, val_ch2, val_ch3) \
     {                                      \
@@ -41,6 +52,9 @@ typedef enum
     PHASE4 = (HAL_G_Pin | HAL_B_Pin),
     PHASE5 = (HAL_B_Pin),
     PHASE6 = (HAL_Y_Pin | HAL_B_Pin),
+
+    PHASE0 = 0,
+    PHASE111 = (HAL_Y_Pin | HAL_G_Pin | HAL_B_Pin),
 } HAL_phase_t;
 
 typedef enum
@@ -54,6 +68,32 @@ typedef enum
     CH3N = LL_TIM_CHANNEL_CH3N,
 } ch_t;
 
+typedef struct __attribute__((__packed__))
+{
+    uint8_t start;
+
+    uint8_t mode;
+    uint8_t LED;
+
+    uint16_t current;
+    uint16_t set_current;
+
+    uint8_t freq;
+    uint8_t batt_voltage;
+
+    uint8_t err;
+
+    uint8_t stop;
+} out_data_t;
+
+typedef struct __attribute__((__packed__))
+{
+    uint8_t start;
+    uint16_t accel;
+    uint16_t brake;
+    uint8_t stop;
+} in_data_t;
+
 #define power_on() (P_EN_GPIO_Port->ODR |= P_EN_Pin)
 #define power_off() (P_EN_GPIO_Port->ODR &= ~P_EN_Pin)
 
@@ -65,12 +105,11 @@ struct
     uint32_t power_off_timeout;
 
     int break_power;
+
     int set_power;
 
-    int power_mult;
-
-    int power_before;
     int power_full;
+    int power_mult;
 
     int voltage;
     int current;
@@ -80,9 +119,30 @@ struct
 
     int ticks_per_change;
     int current_ticks;
+    int mode;
+
+    out_data_t out_data;
+    int out_data_len;
+
+    in_data_t in_data;
+    int in_data_len;
 } motor;
 
 uint16_t adc_data[2];
+
+void calculate_power()
+{
+    motor.power_mult += (motor.set_power * EXP_FILTER_RANGE - motor.power_mult) / EXP_FILTER_RANGE;
+    motor.power_full = motor.power_mult / EXP_FILTER_RANGE;
+
+    int curr_d = motor.current - (MAX_CURRENT / (motor.mode + 1));
+    if (curr_d > 0)
+    {
+        motor.power_full -= curr_d;
+        if (motor.power_full < 0)
+            motor.power_full = 0;
+    }
+}
 
 void system_power_off()
 {
@@ -100,12 +160,6 @@ void system_power_off()
 
     while (1) // wait for power off
         ;
-}
-
-void set_power(int power)
-{
-    motor.set_power = power;
-    motor.power_full = power;
 }
 
 void btn_task()
@@ -159,13 +213,13 @@ void btn_task()
                 case 1:
                     if (press_ms < 2000) // short press
                     {
-                        // do something
+                        motor.out_data.LED ^= 1;
                     }
                     break;
-                    // case 2:
-                    //   mode++;
-                    //   mode %= 3;
-                    //   break;
+                case 2:
+                    motor.mode++;
+                    motor.mode %= 3;
+                    break;
 
                 default:
                     break;
@@ -179,9 +233,9 @@ void btn_task()
 
 void tick_stepper()
 {
-    motor.power_before = motor.current_ticks * motor.power_full / motor.ticks_per_change;
-    if (motor.power_before > motor.power_full)
-        motor.power_before = motor.power_full;
+    int power_before = motor.current_ticks * motor.power_full / motor.ticks_per_change;
+    if (power_before > motor.power_full)
+        power_before = motor.power_full;
 
     switch (PHASE)
     {
@@ -191,7 +245,7 @@ void tick_stepper()
         break;
 
     case PHASE2:
-        set_chs(MAX_PWM, motor.power_before, motor.power_full);
+        set_chs(MAX_PWM, power_before, motor.power_full);
         on_off_chs(CH2 | CH3 | CH1N);
         break;
 
@@ -201,7 +255,7 @@ void tick_stepper()
         break;
 
     case PHASE4:
-        set_chs(motor.power_before, motor.power_full, MAX_PWM);
+        set_chs(power_before, motor.power_full, MAX_PWM);
         on_off_chs(CH1 | CH2 | CH3N);
         break;
 
@@ -211,7 +265,7 @@ void tick_stepper()
         break;
 
     case PHASE6:
-        set_chs(motor.power_full, MAX_PWM, motor.power_before);
+        set_chs(motor.power_full, MAX_PWM, power_before);
         on_off_chs(CH1 | CH3 | CH2N);
         break;
 
@@ -245,6 +299,7 @@ void main_systick()
 {
     millis++;
     btn_task();
+    calculate_power();
 
     if (millis % 1000 == 0)
     {
@@ -263,7 +318,8 @@ void main_systick()
         motor.release_timeout--;
     else
     {
-        set_power(0);
+        motor.set_power = 0;
+        motor.power_full = 0;
         on_off_chs(0);
     }
 
@@ -273,10 +329,6 @@ void main_systick()
     {
         // system_power_off();
     }
-
-    motor.power_mult += (motor.set_power * EXP_FILTER_RANGE - motor.power_mult) / EXP_FILTER_RANGE;
-
-    motor.power_full = motor.power_mult / EXP_FILTER_RANGE;
 }
 
 void do_break(int val)
@@ -289,69 +341,60 @@ void do_break(int val)
     on_off_chs(CH1N | CH2N | CH3N);
 }
 
-uint8_t data[128];
-uint8_t data_len = 0;
-
 void readed(uint8_t byte)
 {
-    if (byte == 0xAA)
+    uint8_t *data = (void *)&motor.in_data;
+
+    if (byte == IN_START)
+        motor.in_data_len = 0;
+
+    data[motor.in_data_len++] = byte;
+
+    if (motor.in_data_len == sizeof(in_data_t))
     {
-        data[0] = byte;
-        data_len = 1;
-    }
-    else if (byte == 0xBB && data_len == 10)
-    {
-        power_on();
-
-        motor.release_timeout = TICKS_TO_RELEASE;
-        motor.power_off_timeout = TICKS_TO_POWEROFF;
-
-        // read break
-        int32_t value = (data[5] << 8) | data[6];
-        if (value > 0x100)
+        if (byte == IN_STOP)
         {
-            value -= 0x100;
-            value *= MAX_PWM;
-            value /= 0x600;
-            motor.break_power = value;
+            motor.out_data_len = 0;
 
-            set_power(0);
-            do_break(motor.break_power);
-        }
-        else
-        {
-            motor.break_power = 0;
-            // read accel
-            value = (data[3] << 8) | data[4];
-            if (value > 0x100)
+            if ((motor.in_data.accel < IN_MIN / 2) || (motor.in_data.brake < IN_MIN / 2))
+                motor.out_data.err |= (1 << 1);
+            else
+                motor.out_data.err &= (1 << 1);
+
+            power_on();
+            motor.power_off_timeout = TICKS_TO_POWEROFF;
+            motor.release_timeout = TICKS_TO_RELEASE;
+
+            if (motor.in_data.brake > IN_MIN)
             {
-                value -= 0x100;
-                value *= MAX_PWM;
-                value /= 0x5D0;
-                if (value > MAX_PWM)
-                    value = MAX_PWM;
+                motor.set_power = 0;
+                motor.power_full = 0;
 
-                motor.set_power = value;
-                motor.break_power = 0;
-
-                if (value < motor.power_full)
-                    set_power(value);
+                motor.break_power = MAX_PWM * (motor.in_data.brake - IN_MIN) / (IN_MAX - IN_MIN);
+                if (motor.break_power > MAX_PWM)
+                    motor.break_power = MAX_PWM;
+                do_break(motor.break_power);
             }
             else
             {
-                set_power(0);
+                motor.break_power = 0;
+                if (motor.in_data.accel > IN_MIN)
+                {
+                    motor.power_full = 0;
+                    motor.set_power = (MAX_PWM) * (motor.in_data.accel - IN_MIN) / (IN_MAX - IN_MIN);
+
+                    if (motor.set_power > MAX_PWM)
+                        motor.set_power = MAX_PWM;
+                }
+                else
+                {
+                    motor.set_power = 0;
+                    motor.power_full = 0;
+                }
             }
+            // parse
         }
-    }
-    else
-    {
-        if (data_len < 32)
-            data[data_len++] = byte;
-        else
-        {
-            data_len = 0;
-            data[0] = 0;
-        }
+        motor.in_data_len = 0;
     }
 }
 
@@ -363,24 +406,58 @@ void hal_change()
     motor.current_ticks = 0;
 }
 
+void tx_task()
+{
+    if (motor.out_data_len == 0)
+    {
+        motor.out_data.start = OUT_START;
+        motor.out_data.stop = OUT_STOP;
+
+        motor.out_data.batt_voltage = motor.voltage;
+        motor.out_data.current = motor.current;
+        motor.out_data.freq = motor.freq / 10;
+        motor.out_data.mode = motor.mode;
+        motor.out_data.set_current = motor.set_power;
+
+        motor.out_data.err &= ~(1 << 1);
+
+        if (PHASE == PHASE0 || PHASE == PHASE111)
+            motor.out_data.err |= (1 << 1);
+    }
+
+    if (motor.out_data_len < sizeof(out_data_t) && (USART1->ISR & USART_ISR_TXE) > 0)
+    {
+        USART1->TDR = *(((uint8_t *)&motor.out_data) + (motor.out_data_len++));
+    }
+}
+
 void my_main()
 {
 
     set_chs(0, 0, 0);
     on_off_chs(0);
 
+    motor.mode = 1;
     motor.release_timeout = TICKS_TO_RELEASE;
     motor.power_off_timeout = TICKS_TO_POWEROFF;
+    motor.out_data_len = sizeof(out_data_t);
 
     while (1)
     {
         motor.voltage = adc_data[0] / 63;
 
+        if (motor.voltage < 30)
+            motor.out_data.err |= 1;
+        else
+            motor.out_data.err &= ~(1);
+
         if (adc_data[1] < 1010)
             motor.current = 0;
         else
         {
-            motor.current = (adc_data[1] - 1010) * 1000 / 50;
+            motor.current = (adc_data[1] - 1010) * 40;
         }
+
+        tx_task();
     }
 }
