@@ -11,10 +11,12 @@
 
 #define MAX_PWM_HIGH (MAX_PWM * 1)
 
-#define TICKS_TO_RELEASE (100)
+#define MAX_CURRENT (20000)
+#define LOW_VOLTAGE (300)
+
+#define TICKS_TO_RELEASE (500)
 #define TICKS_TO_POWEROFF (500)
 
-#define LOW_VOLTAGE (25)
 #define EXP_FILTER_RANGE (128)
 #define POWER_BEFORE_DELIMER (3)
 
@@ -30,8 +32,6 @@
 #define LED_ON (STOP_LED_GPIO_Port->ODR |= STOP_LED_Pin)
 #define LED_OFF (STOP_LED_GPIO_Port->ODR &= ~STOP_LED_Pin)
 #define LED_TOGGLE (STOP_LED_GPIO_Port->ODR ^= STOP_LED_Pin)
-
-#define MAX_CURRENT (30000)
 
 #define set_chs(val_ch1, val_ch2, val_ch3) \
     {                                      \
@@ -138,10 +138,18 @@ void calculate_power()
 
     motor.set_current = motor.set_power * MAX_CURRENT / (motor.mode + 1) / MAX_PWM;
 
-    int pwm_tmp = (motor.set_current - motor.current) * 1000;
+    int pwm_tmp_C = (motor.set_current - motor.current) * 1;
+    int pwm_tmp_V = (motor.voltage - LOW_VOLTAGE) * 10;
 
-    if (pwm_tmp > 0 && pwm_tmp < motor.power_full)
-        motor.power_full = pwm_tmp;
+    if (pwm_tmp_C > pwm_tmp_V)
+        pwm_tmp_C = pwm_tmp_V;
+
+    if (pwm_tmp_C < 0)
+    {
+        motor.power_full += pwm_tmp_C;
+        if (motor.power_full < 0)
+            motor.power_full = 0;
+    }
 }
 
 void system_power_off()
@@ -349,6 +357,7 @@ void do_break(int val)
 
 void readed(uint8_t byte)
 {
+
     uint8_t *data = (void *)&motor.in_data;
 
     if (byte == IN_START)
@@ -391,8 +400,8 @@ void readed(uint8_t byte)
                     if (motor.set_power > MAX_PWM)
                         motor.set_power = MAX_PWM;
 
-                    if (motor.set_power < motor.power_full)
-                        set_power(motor.set_power);
+                    //if (motor.set_power < motor.power_full)
+                    //    set_power(motor.set_power);
                 }
                 else
                 {
@@ -421,7 +430,7 @@ void tx_task()
         motor.out_data.start = OUT_START;
         motor.out_data.stop = OUT_STOP;
 
-        motor.out_data.batt_voltage = motor.voltage;
+        motor.out_data.batt_voltage = motor.voltage / 10;
         motor.out_data.current = motor.current;
         motor.out_data.freq = motor.freq / 10;
         motor.out_data.mode = motor.mode;
@@ -452,7 +461,7 @@ void my_main()
 
     while (1)
     {
-        motor.voltage = adc_data[0] / 63;
+        motor.voltage = 10 * adc_data[0] / 61;
 
         if (motor.voltage < 30)
             motor.out_data.err |= 1;
@@ -462,15 +471,12 @@ void my_main()
         int curr = 0;
         for (int i = 1; i < sizeof(adc_data) / sizeof(adc_data[0]); i += 2)
         {
-
-            if (adc_data[i] > 1010)
+            if (adc_data[i] > 1000)
             {
-                int calc_current = (adc_data[i] - 1010) * 29;
-                if (calc_current > curr)
-                    motor.current = calc_current;
+                curr += adc_data[i] - 1000;
             }
         }
-        motor.current += (curr - motor.current) / 100;
+        motor.current = curr / 3;
         tx_task();
     }
 }

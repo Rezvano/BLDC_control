@@ -202,13 +202,29 @@ void TIM1_BRK_UP_TRG_COM_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_BRK_UP_TRG_COM_IRQn 0 */
   TIM1->SR = 0; // clear flags
-  extern void tick_iqr();
-  tick_iqr();
+  // extern void tick_iqr();
+  // tick_iqr();
 
   /* USER CODE END TIM1_BRK_UP_TRG_COM_IRQn 0 */
   /* USER CODE BEGIN TIM1_BRK_UP_TRG_COM_IRQn 1 */
 
   /* USER CODE END TIM1_BRK_UP_TRG_COM_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM1 capture compare interrupt.
+  */
+void TIM1_CC_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM1_CC_IRQn 0 */
+  /* USER CODE BEGIN TIM1_BRK_UP_TRG_COM_IRQn 0 */
+  TIM1->SR = 0; // clear flags
+  extern void tick_iqr();
+  tick_iqr();
+  /* USER CODE END TIM1_CC_IRQn 0 */
+  /* USER CODE BEGIN TIM1_CC_IRQn 1 */
+
+  /* USER CODE END TIM1_CC_IRQn 1 */
 }
 
 /**

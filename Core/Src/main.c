@@ -69,6 +69,7 @@ static void MX_ADC_Init(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -104,7 +105,7 @@ int main(void)
   LL_USART_Enable(USART1);
   LL_USART_EnableIT_RXNE(USART1);
 
-  LL_TIM_EnableIT_UPDATE(TIM1);
+  LL_TIM_EnableIT_CC4(TIM1);
 
   LL_TIM_EnableAllOutputs(TIM1);
   LL_TIM_EnableCounter(TIM1);
@@ -277,7 +278,7 @@ static void MX_ADC_Init(void)
   LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
   LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
   LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_1CYCLE_5);
-  LL_ADC_REG_SetTriggerEdge(ADC1, LL_ADC_REG_TRIG_EXT_RISING);
+  LL_ADC_REG_SetTriggerEdge(ADC1, LL_ADC_REG_TRIG_EXT_RISINGFALLING);
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
@@ -320,12 +321,14 @@ static void MX_TIM1_Init(void)
   /* TIM1 interrupt Init */
   NVIC_SetPriority(TIM1_BRK_UP_TRG_COM_IRQn, 0);
   NVIC_EnableIRQ(TIM1_BRK_UP_TRG_COM_IRQn);
+  NVIC_SetPriority(TIM1_CC_IRQn, 0);
+  NVIC_EnableIRQ(TIM1_CC_IRQn);
 
   /* USER CODE BEGIN TIM1_Init 1 */
 
   /* USER CODE END TIM1_Init 1 */
   TIM_InitStruct.Prescaler = 0;
-  TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
+  TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_CENTER_DOWN;
   TIM_InitStruct.Autoreload = MAX_PWM;
   TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
   TIM_InitStruct.RepetitionCounter = 0;
@@ -349,7 +352,14 @@ static void MX_TIM1_Init(void)
   LL_TIM_OC_EnablePreload(TIM1, LL_TIM_CHANNEL_CH3);
   LL_TIM_OC_Init(TIM1, LL_TIM_CHANNEL_CH3, &TIM_OC_InitStruct);
   LL_TIM_OC_DisableFast(TIM1, LL_TIM_CHANNEL_CH3);
-  LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_UPDATE);
+  TIM_OC_InitStruct.OCMode = LL_TIM_OCMODE_TOGGLE;
+  TIM_OC_InitStruct.CompareValue = 1;
+  TIM_OC_InitStruct.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
+  TIM_OC_InitStruct.OCIdleState = LL_TIM_OCIDLESTATE_LOW;
+  TIM_OC_InitStruct.OCNIdleState = LL_TIM_OCIDLESTATE_LOW;
+  LL_TIM_OC_Init(TIM1, LL_TIM_CHANNEL_CH4, &TIM_OC_InitStruct);
+  LL_TIM_OC_DisableFast(TIM1, LL_TIM_CHANNEL_CH4);
+  LL_TIM_SetTriggerOutput(TIM1, LL_TIM_TRGO_OC4REF);
   LL_TIM_DisableMasterSlaveMode(TIM1);
   TIM_BDTRInitStruct.OSSRState = LL_TIM_OSSR_DISABLE;
   TIM_BDTRInitStruct.OSSIState = LL_TIM_OSSI_DISABLE;
@@ -513,6 +523,8 @@ static void MX_GPIO_Init(void)
 {
   LL_EXTI_InitTypeDef EXTI_InitStruct = {0};
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* USER CODE BEGIN MX_GPIO_Init_1 */
+/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
@@ -599,6 +611,8 @@ static void MX_GPIO_Init(void)
   NVIC_SetPriority(EXTI4_15_IRQn, 0);
   NVIC_EnableIRQ(EXTI4_15_IRQn);
 
+/* USER CODE BEGIN MX_GPIO_Init_2 */
+/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
