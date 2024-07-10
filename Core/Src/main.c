@@ -64,9 +64,9 @@ static void MX_ADC_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -104,6 +104,7 @@ int main(void)
 
   LL_USART_Enable(USART1);
   LL_USART_EnableIT_RXNE(USART1);
+  LL_USART_EnableDMAReq_TX(USART1);
 
   LL_TIM_EnableIT_CC4(TIM1);
 
@@ -151,47 +152,43 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   LL_FLASH_SetLatency(LL_FLASH_LATENCY_1);
-  while(LL_FLASH_GetLatency() != LL_FLASH_LATENCY_1)
+  while (LL_FLASH_GetLatency() != LL_FLASH_LATENCY_1)
   {
   }
   LL_RCC_HSI_Enable();
 
-   /* Wait till HSI is ready */
-  while(LL_RCC_HSI_IsReady() != 1)
+  /* Wait till HSI is ready */
+  while (LL_RCC_HSI_IsReady() != 1)
   {
-
   }
   LL_RCC_HSI_SetCalibTrimming(16);
   LL_RCC_HSI14_Enable();
 
-   /* Wait till HSI14 is ready */
-  while(LL_RCC_HSI14_IsReady() != 1)
+  /* Wait till HSI14 is ready */
+  while (LL_RCC_HSI14_IsReady() != 1)
   {
-
   }
   LL_RCC_HSI14_SetCalibTrimming(16);
   LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSI_DIV_2, LL_RCC_PLL_MUL_12);
   LL_RCC_PLL_Enable();
 
-   /* Wait till PLL is ready */
-  while(LL_RCC_PLL_IsReady() != 1)
+  /* Wait till PLL is ready */
+  while (LL_RCC_PLL_IsReady() != 1)
   {
-
   }
   LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
   LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
   LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
 
-   /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
+  /* Wait till System clock is ready */
+  while (LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
   {
-
   }
   LL_Init1msTick(48000000);
   LL_SetSystemCoreClock(48000000);
@@ -200,10 +197,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief ADC Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_ADC_Init(void)
 {
 
@@ -256,15 +253,15 @@ static void MX_ADC_Init(void)
   /* USER CODE END ADC_Init 1 */
 
   /** Configure Regular Channel
-  */
+   */
   LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_1);
 
   /** Configure Regular Channel
-  */
+   */
   LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_3);
 
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
+   */
   ADC_InitStruct.Clock = LL_ADC_CLOCK_ASYNC;
   ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;
   ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;
@@ -282,14 +279,13 @@ static void MX_ADC_Init(void)
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
-
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM1_Init(void)
 {
 
@@ -429,14 +425,13 @@ static void MX_TIM1_Init(void)
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   GPIO_InitStruct.Alternate = LL_GPIO_AF_2;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
 
@@ -472,6 +467,23 @@ static void MX_USART1_UART_Init(void)
   GPIO_InitStruct.Alternate = LL_GPIO_AF_1;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /* USART1 DMA Init */
+
+  /* USART1_TX Init */
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_2, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+
+  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PRIORITY_LOW);
+
+  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MODE_NORMAL);
+
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PERIPH_NOINCREMENT);
+
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MEMORY_INCREMENT);
+
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PDATAALIGN_BYTE);
+
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MDATAALIGN_BYTE);
+
   /* USART1 interrupt Init */
   NVIC_SetPriority(USART1_IRQn, 1);
   NVIC_EnableIRQ(USART1_IRQn);
@@ -494,12 +506,11 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
+ * Enable DMA controller clock
+ */
 static void MX_DMA_Init(void)
 {
 
@@ -511,20 +522,22 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
   NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-
+  /* DMA1_Channel2_3_IRQn interrupt configuration */
+  NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0);
+  NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   LL_EXTI_InitTypeDef EXTI_InitStruct = {0};
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOF);
@@ -611,8 +624,8 @@ static void MX_GPIO_Init(void)
   NVIC_SetPriority(EXTI4_15_IRQn, 0);
   NVIC_EnableIRQ(EXTI4_15_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -620,9 +633,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -634,14 +647,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

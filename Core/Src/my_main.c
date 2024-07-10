@@ -17,7 +17,7 @@
 #define TICKS_TO_RELEASE (500)
 #define TICKS_TO_POWEROFF (500)
 
-#define EXP_FILTER_RANGE (128)
+#define EXP_FILTER_RANGE (64)
 #define POWER_BEFORE_DELIMER (3)
 
 #define HALL_CHANGES_PER_CIRCLE (42)
@@ -123,7 +123,7 @@ struct
     int mode;
 
     out_data_t out_data;
-    int out_data_len;
+    int send;
 
     in_data_t in_data;
     int in_data_len;
@@ -316,9 +316,9 @@ void main_systick()
     btn_task();
     calculate_power();
 
-    if (millis % 1000 == 0)
+    if (millis % 100 == 0)
     {
-        motor.freq = motor.HAL_ticks_per_sec * 10 / HALL_CHANGES_PER_CIRCLE;
+        motor.freq = motor.HAL_ticks_per_sec * 100 / HALL_CHANGES_PER_CIRCLE;
         motor.HAL_ticks_per_sec = 0;
     }
     if (millis % 100 == 0)
@@ -355,63 +355,84 @@ void do_break(int val)
     on_off_chs(CH1N | CH2N | CH3N);
 }
 
+struct
+{
+    uint8_t buffer[128];
+    int write;
+    int read;
+    int size;
+} in_fifo;
+
 void readed(uint8_t byte)
 {
-
-    uint8_t *data = (void *)&motor.in_data;
-
-    if (byte == IN_START)
-        motor.in_data_len = 0;
-
-    data[motor.in_data_len++] = byte;
-
-    if (motor.in_data_len == sizeof(in_data_t))
+    if (in_fifo.size < sizeof(in_fifo.buffer))
     {
-        if (byte == IN_STOP)
+        in_fifo.buffer[(in_fifo.write++) % sizeof(in_fifo.buffer)] = byte;
+        in_fifo.size++;
+        in_fifo.size %= sizeof(in_fifo.buffer);
+    }
+}
+
+void rx_task()
+{
+    if (in_fifo.size > 0)
+    {
+        uint8_t *data = (void *)&motor.in_data;
+
+        uint8_t byte = in_fifo.buffer[(in_fifo.read++) % sizeof(in_fifo.buffer)];
+        in_fifo.size--;
+
+        if (byte == IN_START)
+            motor.in_data_len = 0;
+
+        data[motor.in_data_len++] = byte;
+
+        if (motor.in_data_len == sizeof(in_data_t))
         {
-            motor.out_data_len = 0;
-
-            if ((motor.in_data.accel < IN_MIN / 2) || (motor.in_data.brake < IN_MIN / 2))
-                motor.out_data.err |= (1 << 1);
-            else
-                motor.out_data.err &= (1 << 1);
-
-            power_on();
-            motor.power_off_timeout = TICKS_TO_POWEROFF;
-            motor.release_timeout = TICKS_TO_RELEASE;
-
-            if (motor.in_data.brake > IN_MIN)
+            if (byte == IN_STOP)
             {
-                set_power(0);
 
-                motor.break_power = MAX_PWM * (motor.in_data.brake - IN_MIN) / (IN_MAX - IN_MIN);
-                if (motor.break_power > MAX_PWM)
-                    motor.break_power = MAX_PWM;
-                do_break(motor.break_power);
-            }
-            else
-            {
-                motor.break_power = 0;
-                if (motor.in_data.accel > IN_MIN)
+                motor.send = 1;
+
+                if ((motor.in_data.accel < IN_MIN / 2) || (motor.in_data.brake < IN_MIN / 2))
+                    motor.out_data.err |= (1 << 1);
+                else
+                    motor.out_data.err &= (1 << 1);
+
+                power_on();
+                motor.power_off_timeout = TICKS_TO_POWEROFF;
+                motor.release_timeout = TICKS_TO_RELEASE;
+
+                if (motor.in_data.brake > IN_MIN)
                 {
-                    motor.power_full = 0;
-                    motor.set_power = (MAX_PWM) * (motor.in_data.accel - IN_MIN) / (IN_MAX - IN_MIN);
+                    set_power(0);
 
-                    if (motor.set_power > MAX_PWM)
-                        motor.set_power = MAX_PWM;
-
-                    //if (motor.set_power < motor.power_full)
-                    //    set_power(motor.set_power);
+                    motor.break_power = MAX_PWM * (motor.in_data.brake - IN_MIN) / (IN_MAX - IN_MIN);
+                    if (motor.break_power > MAX_PWM)
+                        motor.break_power = MAX_PWM;
+                    do_break(motor.break_power);
                 }
                 else
                 {
-                    motor.set_power = 0;
-                    motor.power_full = 0;
+                    if (motor.in_data.accel > IN_MIN)
+                    {
+                        motor.set_power = (MAX_PWM) * (motor.in_data.accel - IN_MIN) / (IN_MAX - IN_MIN);
+
+                        if (motor.set_power > MAX_PWM)
+                            motor.set_power = MAX_PWM;
+
+                        if (motor.set_power < motor.power_full)
+                            set_power(motor.set_power);
+                    }
+                    else
+                    {
+                        set_power(0);
+                    }
                 }
+                // parse
             }
-            // parse
+            motor.in_data_len = 0;
         }
-        motor.in_data_len = 0;
     }
 }
 
@@ -425,8 +446,10 @@ void hal_change()
 
 void tx_task()
 {
-    if (motor.out_data_len == 0)
+    if (motor.send)
     {
+        motor.send = 0;
+
         motor.out_data.start = OUT_START;
         motor.out_data.stop = OUT_STOP;
 
@@ -440,11 +463,13 @@ void tx_task()
 
         if (PHASE == PHASE0 || PHASE == PHASE111)
             motor.out_data.err |= (1 << 1);
-    }
 
-    if (motor.out_data_len < sizeof(out_data_t) && (USART1->ISR & USART_ISR_TXE) > 0)
-    {
-        USART1->TDR = *(((uint8_t *)&motor.out_data) + (motor.out_data_len++));
+        LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_2);
+        LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_2, (uint32_t)&motor.out_data);
+        LL_DMA_SetPeriphAddress(DMA1, LL_DMA_CHANNEL_2, (uint32_t)&USART1->TDR);
+
+        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_2, sizeof(motor.out_data));
+        LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
     }
 }
 
@@ -457,7 +482,10 @@ void my_main()
     motor.mode = 1;
     motor.release_timeout = TICKS_TO_RELEASE;
     motor.power_off_timeout = TICKS_TO_POWEROFF;
-    motor.out_data_len = sizeof(out_data_t);
+
+    in_fifo.write = 0;
+    in_fifo.read = 0;
+    in_fifo.size = 0;
 
     while (1)
     {
@@ -478,5 +506,6 @@ void my_main()
         }
         motor.current = curr / 3;
         tx_task();
+        rx_task();
     }
 }
