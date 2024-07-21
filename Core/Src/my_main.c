@@ -11,14 +11,14 @@
 
 #define MAX_PWM_HIGH (MAX_PWM * 1)
 
-#define MAX_CURRENT (20000)
+#define MAX_CURRENT (15000)
 #define LOW_VOLTAGE (300)
 
 #define TICKS_TO_RELEASE (500)
 #define TICKS_TO_POWEROFF (500)
 
-#define EXP_FILTER_RANGE (64)
-#define POWER_BEFORE_DELIMER (3)
+#define EXP_FILTER_RANGE (6)
+#define CURRENT_EXP_FILTER_RANGE (6)
 
 #define HALL_CHANGES_PER_CIRCLE (42)
 
@@ -113,6 +113,9 @@ struct
     int power_mult;
 
     int voltage;
+
+    int current_raw;
+    int current_mult;
     int current;
 
     int HAL_ticks_per_sec;
@@ -133,8 +136,12 @@ uint16_t adc_data[80];
 
 void calculate_power()
 {
-    motor.power_mult += (motor.set_power * EXP_FILTER_RANGE - motor.power_mult) / EXP_FILTER_RANGE;
-    motor.power_full = motor.power_mult / EXP_FILTER_RANGE;
+    motor.current_mult += ((motor.current_raw << CURRENT_EXP_FILTER_RANGE) - motor.current_mult) >> CURRENT_EXP_FILTER_RANGE;
+    motor.current = motor.current_mult >> CURRENT_EXP_FILTER_RANGE;
+    motor.power_mult += ((motor.set_power << EXP_FILTER_RANGE) - motor.power_mult) >> EXP_FILTER_RANGE;
+
+    motor.power_mult += ((motor.set_power << EXP_FILTER_RANGE) - motor.power_mult) >> EXP_FILTER_RANGE;
+    motor.power_full = motor.power_mult >> EXP_FILTER_RANGE;
 
     motor.set_current = motor.set_power * MAX_CURRENT / (motor.mode + 1) / MAX_PWM;
 
@@ -173,7 +180,7 @@ void system_power_off()
 void set_power(int power)
 {
     motor.set_power = power;
-    motor.power_mult = power * EXP_FILTER_RANGE;
+    motor.power_mult = power << EXP_FILTER_RANGE;
     motor.power_full = power;
 }
 
@@ -360,27 +367,20 @@ struct
     uint8_t buffer[128];
     int write;
     int read;
-    int size;
 } in_fifo;
 
 void readed(uint8_t byte)
 {
-    if (in_fifo.size < sizeof(in_fifo.buffer))
-    {
-        in_fifo.buffer[(in_fifo.write++) % sizeof(in_fifo.buffer)] = byte;
-        in_fifo.size++;
-        in_fifo.size %= sizeof(in_fifo.buffer);
-    }
+    in_fifo.buffer[(in_fifo.write++) % sizeof(in_fifo.buffer)] = byte;
 }
 
 void rx_task()
 {
-    if (in_fifo.size > 0)
+    if (in_fifo.read < in_fifo.write)
     {
         uint8_t *data = (void *)&motor.in_data;
 
         uint8_t byte = in_fifo.buffer[(in_fifo.read++) % sizeof(in_fifo.buffer)];
-        in_fifo.size--;
 
         if (byte == IN_START)
             motor.in_data_len = 0;
@@ -391,7 +391,6 @@ void rx_task()
         {
             if (byte == IN_STOP)
             {
-
                 motor.send = 1;
 
                 if ((motor.in_data.accel < IN_MIN / 2) || (motor.in_data.brake < IN_MIN / 2))
@@ -414,6 +413,7 @@ void rx_task()
                 }
                 else
                 {
+                    motor.break_power = 0;
                     if (motor.in_data.accel > IN_MIN)
                     {
                         motor.set_power = (MAX_PWM) * (motor.in_data.accel - IN_MIN) / (IN_MAX - IN_MIN);
@@ -475,7 +475,6 @@ void tx_task()
 
 void my_main()
 {
-
     set_chs(0, 0, 0);
     on_off_chs(0);
 
@@ -485,7 +484,6 @@ void my_main()
 
     in_fifo.write = 0;
     in_fifo.read = 0;
-    in_fifo.size = 0;
 
     while (1)
     {
@@ -498,13 +496,8 @@ void my_main()
 
         int curr = 0;
         for (int i = 1; i < sizeof(adc_data) / sizeof(adc_data[0]); i += 2)
-        {
-            if (adc_data[i] > 1000)
-            {
-                curr += adc_data[i] - 1000;
-            }
-        }
-        motor.current = curr / 3;
+            curr += adc_data[i];
+        motor.current_raw = 100 + (curr - 35000) / 2; // / (sizeof(adc_data) / sizeof(adc_data[0]));
         tx_task();
         rx_task();
     }

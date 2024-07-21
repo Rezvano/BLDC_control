@@ -73,12 +73,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define MAX_PWM 799
+#define MAX_PWM 511
 #define BTN_Pin LL_GPIO_PIN_0
 #define BTN_GPIO_Port GPIOF
 #define ADC_VIN_Pin LL_GPIO_PIN_1
 #define ADC_VIN_GPIO_Port GPIOA
-#define ADC_CS_Pin LL_GPIO_PIN_3
+#define ADC_CS_Pin LL_GPIO_PIN_4
 #define ADC_CS_GPIO_Port GPIOA
 #define P_EN_Pin LL_GPIO_PIN_5
 #define P_EN_GPIO_Port GPIOA
