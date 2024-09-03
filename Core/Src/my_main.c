@@ -11,13 +11,13 @@
 
 #define MAX_PWM_HIGH (MAX_PWM * 1)
 
-#define MAX_CURRENT (15000)
-#define LOW_VOLTAGE (300)
+#define MAX_CURRENT (25000)
+#define LOW_VOLTAGE (310)
 
 #define TICKS_TO_RELEASE (500)
 #define TICKS_TO_POWEROFF (500)
 
-#define EXP_FILTER_RANGE (6)
+#define EXP_FILTER_RANGE (7)
 #define CURRENT_EXP_FILTER_RANGE (6)
 
 #define HALL_CHANGES_PER_CIRCLE (42)
@@ -121,8 +121,6 @@ struct
     int HAL_ticks_per_sec;
     int freq;
 
-    int ticks_per_change;
-    int current_ticks;
     int mode;
 
     out_data_t out_data;
@@ -134,29 +132,62 @@ struct
 
 uint16_t adc_data[80];
 
+int V_err = 0;
+int V_err_I = 0;
+
+int C_err = 0;
+int C_err_I = 0;
+
+#define I_reg_kP (10)
+#define I_reg_kI (10)
+
+#define V_reg_kP (1000)
+#define V_reg_kI (200)
+
 void calculate_power()
 {
     motor.current_mult += ((motor.current_raw << CURRENT_EXP_FILTER_RANGE) - motor.current_mult) >> CURRENT_EXP_FILTER_RANGE;
     motor.current = motor.current_mult >> CURRENT_EXP_FILTER_RANGE;
-    motor.power_mult += ((motor.set_power << EXP_FILTER_RANGE) - motor.power_mult) >> EXP_FILTER_RANGE;
 
     motor.power_mult += ((motor.set_power << EXP_FILTER_RANGE) - motor.power_mult) >> EXP_FILTER_RANGE;
-    motor.power_full = motor.power_mult >> EXP_FILTER_RANGE;
+    int power_full = motor.power_mult >> EXP_FILTER_RANGE;
 
     motor.set_current = motor.set_power * MAX_CURRENT / (motor.mode + 1) / MAX_PWM;
 
-    int pwm_tmp_C = (motor.set_current - motor.current) * 1;
-    int pwm_tmp_V = (motor.voltage - LOW_VOLTAGE) * 10;
+    V_err = (motor.voltage - LOW_VOLTAGE);
+    V_err_I += V_err + 1;
 
-    if (pwm_tmp_C > pwm_tmp_V)
-        pwm_tmp_C = pwm_tmp_V;
+    if (V_err_I > 0)
+        V_err_I = 0;
 
-    if (pwm_tmp_C < 0)
-    {
-        motor.power_full += pwm_tmp_C;
-        if (motor.power_full < 0)
-            motor.power_full = 0;
-    }
+    int min_V_err_I = -power_full * 1000 / V_reg_kI;
+    if (V_err_I < min_V_err_I)
+        V_err_I = min_V_err_I;
+
+    int V_reg = V_err * V_reg_kP / 1000 + V_err_I * V_reg_kI / 1000;
+
+    if (V_reg < 0)
+        power_full += V_reg;
+
+    C_err = (motor.set_current - motor.current_raw);
+    C_err_I += C_err + 1;
+
+    if (C_err_I > 0)
+        C_err_I = 0;
+
+    int min_C_err_I = -power_full * 1000 / I_reg_kI;
+    if (C_err_I < min_C_err_I)
+        C_err_I = min_C_err_I;
+
+    int C_reg = C_err * I_reg_kP / 1000 + C_err_I * I_reg_kI / 1000;
+
+    if (C_reg < 0)
+        power_full += C_reg;
+
+    if (power_full < 0)
+        power_full = 0;
+
+    motor.power_full = power_full;
 }
 
 void system_power_off()
@@ -255,10 +286,6 @@ void btn_task()
 
 void tick_stepper()
 {
-    int power_before = motor.current_ticks * motor.power_full / motor.ticks_per_change;
-    if (power_before > motor.power_full)
-        power_before = motor.power_full;
-
     switch (PHASE)
     {
     case PHASE1:
@@ -267,7 +294,7 @@ void tick_stepper()
         break;
 
     case PHASE2:
-        set_chs(MAX_PWM, power_before, motor.power_full);
+        set_chs(MAX_PWM, 0, motor.power_full);
         on_off_chs(CH2 | CH3 | CH1N);
         break;
 
@@ -277,7 +304,7 @@ void tick_stepper()
         break;
 
     case PHASE4:
-        set_chs(power_before, motor.power_full, MAX_PWM);
+        set_chs(0, motor.power_full, MAX_PWM);
         on_off_chs(CH1 | CH2 | CH3N);
         break;
 
@@ -287,7 +314,7 @@ void tick_stepper()
         break;
 
     case PHASE6:
-        set_chs(motor.power_full, MAX_PWM, power_before);
+        set_chs(motor.power_full, MAX_PWM, 0);
         on_off_chs(CH1 | CH3 | CH2N);
         break;
 
@@ -300,14 +327,6 @@ void tick_stepper()
 
 void tick_iqr()
 {
-    motor.current_ticks++;
-
-    if (motor.current_ticks > MAX_TICKS_PER_CHANGE)
-    {
-        motor.current_ticks = MAX_TICKS_PER_CHANGE;
-        motor.ticks_per_change = MAX_TICKS_PER_CHANGE;
-    }
-
     if (motor.break_power == 0)
     {
         if (motor.power_full > 0)
@@ -439,9 +458,6 @@ void rx_task()
 void hal_change()
 {
     motor.HAL_ticks_per_sec++;
-
-    motor.ticks_per_change = motor.current_ticks;
-    motor.current_ticks = 0;
 }
 
 void tx_task()
@@ -484,6 +500,8 @@ void my_main()
 
     in_fifo.write = 0;
     in_fifo.read = 0;
+
+    power_on();
 
     while (1)
     {
