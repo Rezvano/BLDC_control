@@ -35,9 +35,9 @@
 
 #define set_chs(val_ch1, val_ch2, val_ch3) \
     {                                      \
-        TIM1->CCR1 = val_ch1;              \
-        TIM1->CCR2 = val_ch2;              \
-        TIM1->CCR3 = val_ch3;              \
+        TIM1->CCR1 = (val_ch1);            \
+        TIM1->CCR2 = (val_ch2);            \
+        TIM1->CCR3 = (val_ch3);            \
     }
 
 #define on_off_chs(channels) (TIM1->CCER = (CCER_DEF | channels))
@@ -47,11 +47,17 @@
 typedef enum
 {
     PHASE1 = (HAL_Y_Pin),
+    PHASE1_1 = (HAL_Y_Pin) + 1,
     PHASE2 = (HAL_Y_Pin | HAL_G_Pin),
+    PHASE2_1 = (HAL_Y_Pin | HAL_G_Pin) + 1,
     PHASE3 = (HAL_G_Pin),
+    PHASE3_1 = (HAL_G_Pin) + 1,
     PHASE4 = (HAL_G_Pin | HAL_B_Pin),
+    PHASE4_1 = (HAL_G_Pin | HAL_B_Pin) + 1,
     PHASE5 = (HAL_B_Pin),
+    PHASE5_1 = (HAL_B_Pin) + 1,
     PHASE6 = (HAL_Y_Pin | HAL_B_Pin),
+    PHASE6_1 = (HAL_Y_Pin | HAL_B_Pin) + 1,
 
     PHASE0 = 0,
     PHASE111 = (HAL_Y_Pin | HAL_G_Pin | HAL_B_Pin),
@@ -325,12 +331,91 @@ void tick_stepper()
     }
 }
 
+int power = 0;
+int ticks_per_change = 0;
+int last_ticks_per_change = 10000;
+
+void tick_stepper1()
+{
+    power = motor.power_full;
+    ticks_per_change++;
+    int _power = (ticks_per_change << 1) * power / last_ticks_per_change;
+    if (_power > power)
+        _power = power;
+
+    int phase = PHASE + ticks_per_change > (last_ticks_per_change >> 1);
+
+    int __power = power - _power;
+
+    switch (PHASE)
+    {
+    case PHASE1:
+        set_chs(__power, power, power);
+        on_off_chs(CH1 | CH3 | CH2N);
+        break;
+    case PHASE1_1:
+        set_chs(_power, power, power);
+        on_off_chs(CH1N | CH3 | CH2N);
+        break;
+
+    case PHASE2:
+        set_chs(power, __power, power);
+        on_off_chs(CH3 | CH2N | CH1N);
+        break;
+    case PHASE2_1:
+        set_chs(power, _power, power);
+        on_off_chs(CH3 | CH2 | CH1N);
+        break;
+
+    case PHASE3:
+        set_chs(power, power, __power);
+        on_off_chs(CH2 | CH1N | CH3);
+        break;
+    case PHASE3_1:
+        set_chs(power, power, _power);
+        on_off_chs(CH2 | CH1N | CH3N);
+        break;
+
+    case PHASE4:
+        set_chs(__power, power, power);
+        on_off_chs(CH1N | CH2 | CH3N);
+        break;
+    case PHASE4_1:
+        set_chs(_power, power, power);
+        on_off_chs(CH1 | CH2 | CH3N);
+        break;
+
+    case PHASE5:
+        set_chs(power, __power, power);
+        on_off_chs(CH1 | CH2 | CH3N);
+        break;
+    case PHASE5_1:
+        set_chs(power, _power, power);
+        on_off_chs(CH1 | CH2N | CH3N);
+        break;
+
+    case PHASE6:
+        set_chs(power, power, __power);
+        on_off_chs(CH1 | CH2N | CH3N);
+        break;
+    case PHASE6_1:
+        set_chs(power, power, _power);
+        on_off_chs(CH1 | CH2N | CH3);
+        break;
+
+    default: // wrong hals
+        set_chs(0, 0, 0);
+        on_off_chs(0);
+        break;
+    }
+}
+
 void tick_iqr()
 {
     if (motor.break_power == 0)
     {
         if (motor.power_full > 0)
-            tick_stepper();
+            tick_stepper1();
         else
             on_off_chs(0); // off all
     }
@@ -457,6 +542,8 @@ void rx_task()
 
 void hal_change()
 {
+    last_ticks_per_change = ticks_per_change;
+    ticks_per_change = 0;
     motor.HAL_ticks_per_sec++;
 }
 
@@ -488,6 +575,8 @@ void tx_task()
         LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
     }
 }
+
+int pwr = 0x5;
 
 void my_main()
 {
